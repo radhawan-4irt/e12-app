@@ -262,6 +262,81 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    /** يقرأ ترويسة الملف: هيدر HTTP، مقاطع JPEG، بيانات EXIF و XMP */
+    @JavascriptInterface public void meta(String name) {
+        new Thread(() -> {
+            try {
+                if (camNet == null) throw new IOException("غير متصل بشبكة السماعة");
+                HttpURLConnection c = (HttpURLConnection) camNet.openConnection(new URL(CAM + name));
+                c.setConnectTimeout(8000); c.setReadTimeout(30000);
+                JSONObject http = new JSONObject();
+                for (Map.Entry<String, List<String>> h : c.getHeaderFields().entrySet())
+                    if (h.getKey() != null) http.put(h.getKey(), String.join(", ", h.getValue()));
+                byte[] b;
+                try (InputStream in = c.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    byte[] buf = new byte[16384]; int r;
+                    while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+                    b = out.toByteArray();
+                } finally { c.disconnect(); }
+
+                JSONObject res = new JSONObject();
+                res.put("file", name);
+                res.put("size", b.length);
+                res.put("http", http);
+                res.put("magic", hex(Arrays.copyOf(b, Math.min(16, b.length))));
+
+                // مقاطع JPEG حتى بداية البيانات (SOS)
+                org.json.JSONArray segs = new org.json.JSONArray();
+                String xmp = null;
+                if (isJpeg(b)) {
+                    int i = 2;
+                    while (i + 4 <= b.length && (b[i] & 0xFF) == 0xFF) {
+                        int m = b[i + 1] & 0xFF;
+                        int len = ((b[i + 2] & 0xFF) << 8) | (b[i + 3] & 0xFF);
+                        String id = "";
+                        if (m >= 0xE0 && m <= 0xEF) {
+                            int e = i + 4; StringBuilder s = new StringBuilder();
+                            while (e < b.length && e < i + 4 + 40 && b[e] != 0) s.append((char) (b[e++] & 0xFF));
+                            id = s.toString();
+                            if (id.startsWith("http://ns.adobe.com/xap")) {
+                                int start = i + 4 + id.length() + 1, n = Math.min(len - 2 - id.length() - 1, 4000);
+                                if (n > 0 && start + n <= b.length) xmp = new String(b, start, n, "UTF-8");
+                            }
+                        }
+                        JSONObject sg = new JSONObject();
+                        sg.put("marker", String.format("FF%02X", m)); sg.put("offset", i); sg.put("length", len); sg.put("id", id);
+                        segs.put(sg);
+                        if (m == 0xDA) break; // SOS
+                        i += 2 + len;
+                    }
+                }
+                res.put("segments", segs);
+                if (xmp != null) res.put("xmp", xmp);
+
+                // الأبعاد
+                android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeByteArray(b, 0, b.length, o);
+                res.put("width", o.outWidth); res.put("height", o.outHeight);
+
+                // كل وسوم EXIF المعروفة لأندرويد
+                JSONObject exif = new JSONObject();
+                try {
+                    android.media.ExifInterface ex = new android.media.ExifInterface(new ByteArrayInputStream(b));
+                    for (java.lang.reflect.Field f : android.media.ExifInterface.class.getFields()) {
+                        if (!f.getName().startsWith("TAG_") || f.getType() != String.class) continue;
+                        String tag = (String) f.get(null);
+                        String v = ex.getAttribute(tag);
+                        if (v != null && !v.isEmpty()) exif.put(tag, v);
+                    }
+                } catch (Exception e) { exif.put("_error", String.valueOf(e.getMessage())); }
+                res.put("exif", exif);
+
+                js("onMeta", name, res.toString());
+            } catch (Exception e) { js("onMeta", name, "{\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}"); }
+        }).start();
+    }
+
     @JavascriptInterface public void save(String name) {
         new Thread(() -> {
             try {

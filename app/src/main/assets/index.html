@@ -56,6 +56,15 @@
   nav{position:fixed;bottom:0;left:0;right:0;height:72px;border-top:1px solid var(--line);background:#fff;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
   nav button{border:0;background:none;color:var(--mut);font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
   nav button.on{color:var(--g);font-weight:700}
+  .meta .info{background:#fff;color:var(--g);border:1px solid var(--g);margin-inline-start:4px}
+  #metaBox{position:fixed;inset:0;background:rgba(28,43,34,.55);display:none;z-index:9;align-items:flex-end}
+  #metaBox.on{display:flex}
+  #metaBox .sheet{background:var(--bg);width:100%;max-height:85vh;overflow:auto;border-radius:22px 22px 0 0;padding:18px}
+  #metaBox table{width:100%;border-collapse:collapse;font-size:12px;direction:ltr;text-align:left}
+  #metaBox td{border-bottom:1px solid var(--line);padding:5px 4px;vertical-align:top;word-break:break-all}
+  #metaBox td:first-child{color:var(--mut);white-space:nowrap;width:40%}
+  #metaBox h4{margin:14px 0 4px;font-size:13px;color:var(--g)}
+  #metaBox pre{white-space:pre-wrap;word-break:break-all;font-size:11px;direction:ltr;text-align:left;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px}
   .tab{display:none}.tab.on{display:block}
   .soon{font-size:11px;padding:2px 8px;border-radius:99px;background:#F3EAD3;color:#7A5A12}
 </style>
@@ -154,10 +163,18 @@
     <div class="card" style="text-align:center">
       <img src="logo.png" alt="" style="width:72px;height:72px;object-fit:contain">
       <div class="kufi" style="font-weight:700;color:var(--g);margin-top:6px">ابتكارات السماء</div>
-      <div style="font-size:12px;color:var(--mut)">مساعد الإمام · الإصدار 0.2</div>
+      <div style="font-size:12px;color:var(--mut)">مساعد الإمام · الإصدار 0.3</div>
     </div>
   </section>
 </div>
+
+<div id="metaBox"><div class="sheet">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <b id="metaTitle" style="font-size:14px">بيانات الصورة</b>
+    <button class="btn" style="height:36px;padding:0 14px" id="metaClose">إغلاق</button>
+  </div>
+  <div id="metaBody" class="log" style="margin-top:8px">جارٍ القراءة…</div>
+</div></div>
 
 <nav>
   <button class="on" data-t="t-prayer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v3M5 21V11a7 7 0 0 1 14 0v10M3 21h18M9 21v-5a3 3 0 0 1 6 0v5"></path></svg>الصلاة</button>
@@ -264,8 +281,9 @@ window.onFiles=json=>{
   files.forEach(f=>{
     const d=document.createElement('div'); d.className='item'; d.dataset.name=f.name;
     const t=f.createtimestr||''; const when=t.length>=12?AR(`${t.slice(6,8)}/${t.slice(4,6)} ${t.slice(8,10)}:${t.slice(10,12)}`):'';
-    d.innerHTML=`<img alt=""><div class="meta"><span>${when}</span><button>حفظ</button></div>`;
-    d.querySelector('button').onclick=e=>{ e.target.disabled=true; e.target.textContent='…'; A.save(f.name); };
+    d.innerHTML=`<img alt=""><div class="meta"><span>${when}</span><span><button class="save">حفظ</button><button class="info">البيانات</button></span></div>`;
+    d.querySelector('.info').onclick=()=>{ openMeta(f.name); };
+    d.querySelector('.save').onclick=e=>{ e.target.disabled=true; e.target.textContent='…'; A.save(f.name); };
     $('grid').appendChild(d);
   });
   let i=0; const q=files.map(f=>f.name);
@@ -279,7 +297,25 @@ window.onThumb=(name,url)=>{
 };
 window.onSaved=(name,ok)=>{
   const it=[...document.querySelectorAll('.item')].find(x=>x.dataset.name===name);
-  if(it) it.querySelector('button').textContent= ok==='1'?'محفوظة':'فشل';
+  if(it) it.querySelector('.save').textContent= ok==='1'?'محفوظة':'فشل';
+};
+
+// ===== بيانات الصورة (الهيدر) =====
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function table(o){ const k=Object.keys(o||{}); if(!k.length) return '<div class="log">لا يوجد</div>';
+  return '<table>'+k.map(x=>`<tr><td>${esc(x)}</td><td>${esc(o[x])}</td></tr>`).join('')+'</table>'; }
+function openMeta(name){ $('metaTitle').textContent=name.split('/').pop(); $('metaBody').innerHTML='جارٍ القراءة…'; $('metaBox').classList.add('on'); A.meta(name); }
+$('metaClose').onclick=()=>$('metaBox').classList.remove('on');
+window.onMeta=(name,json)=>{
+  let m; try{ m=JSON.parse(json);}catch(e){ m={error:json}; }
+  if(m.error){ $('metaBody').innerHTML='<div class="err">'+esc(m.error)+'</div>'; return; }
+  let h=table({'الحجم':m.size+' بايت','الأبعاد':m.width+' × '+m.height,'أول البايتات':m.magic});
+  h+='<h4>EXIF ('+Object.keys(m.exif||{}).length+')</h4>'+table(m.exif);
+  h+='<h4>مقاطع الملف</h4>'+table(Object.fromEntries((m.segments||[]).map(s=>[s.marker+' @'+s.offset, s.length+' بايت'+(s.id?' · '+s.id:'')])));
+  if(m.xmp) h+='<h4>XMP</h4><pre>'+esc(m.xmp)+'</pre>';
+  h+='<h4>هيدر HTTP</h4>'+table(m.http);
+  $('metaBody').innerHTML=h;
+  log('قراءة بيانات '+name,'ok');
 };
 
 $('scan').onclick=()=>{ $('devs').innerHTML=''; A&&A.startScan(); };
