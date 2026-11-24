@@ -235,14 +235,29 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    static boolean isJpeg(byte[] b) { return b != null && b.length > 3 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8; }
+
     @JavascriptInterface public void thumb(String name) {
         new Thread(() -> {
             try {
-                byte[] b;
-                try { b = httpGet(CAM + "app/getthumbnail?file=" + URLEncoder.encode(name, "UTF-8")); }
-                catch (Exception e) { b = httpGet(CAM + name); }
+                byte[] b = null;
+                try { b = httpGet(CAM + "app/getthumbnail?file=" + URLEncoder.encode(name, "UTF-8")); } catch (Exception ignored) {}
+                if (!isJpeg(b)) {
+                    // الصورة المصغرة غير متاحة: نحمّل الصورة الأصلية ونصغّرها
+                    byte[] full = httpGet(CAM + name);
+                    if (!isJpeg(full)) throw new IOException("الملف ليس صورة (" + (full == null ? 0 : full.length) + " بايت)");
+                    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                    o.inSampleSize = 4;
+                    android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeByteArray(full, 0, full.length, o);
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    bm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out);
+                    b = out.toByteArray();
+                }
                 js("onThumb", name, "data:image/jpeg;base64," + Base64.encodeToString(b, Base64.NO_WRAP));
-            } catch (Exception e) { js("onThumb", name, ""); }
+            } catch (Exception e) {
+                log("تعذّر عرض " + name + ": " + e.getMessage());
+                js("onThumb", name, "");
+            }
         }).start();
     }
 
