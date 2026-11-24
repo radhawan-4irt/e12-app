@@ -116,7 +116,8 @@ public class MainActivity extends Activity {
         seen.clear();
         scanner = bt.getBluetoothLeScanner();
         if (scanner == null) { log("البلوتوث غير جاهز"); return; }
-        scanner.startScan(scanCb);
+        try { scanner.startScan(scanCb); }
+        catch (SecurityException e) { log("وافق على إذن الأجهزة القريبة ثم اضغط «بحث عن السماعة»"); return; }
         log("جارٍ البحث…");
         ui.postDelayed(this::stopScan, 10000);
     }
